@@ -435,6 +435,7 @@ static int i10_host_init_request(struct blk_mq_tag_set *set,
 {
 	struct i10_host_ctrl *ctrl = set->driver_data;
 	struct i10_host_request *req = blk_mq_rq_to_pdu(rq);
+	struct nvme_tcp_cmd_pdu *pdu;
 	int queue_idx = (set == &ctrl->tag_set) ? hctx_idx + 1 : 0;
 	struct i10_host_queue *queue = &ctrl->queues[queue_idx];
 	u8 hdgst = i10_host_hdgst_len(queue);
@@ -445,8 +446,10 @@ static int i10_host_init_request(struct blk_mq_tag_set *set,
 	if (!req->pdu)
 		return -ENOMEM;
 
+	pdu = req->pdu;
 	req->queue = queue;
 	nvme_req(rq)->ctrl = &ctrl->ctrl;
+	nvme_req(rq)->cmd = &pdu->cmd;
 
 	return 0;
 }
@@ -1655,7 +1658,7 @@ static int i10_host_start_queue(struct nvme_ctrl *nctrl, int idx)
 	int ret;
 
 	if (idx)
-		ret = nvmf_connect_io_queue(nctrl, idx, false);
+		ret = nvmf_connect_io_queue(nctrl, idx);
 	else
 		ret = nvmf_connect_admin_queue(nctrl);
 
@@ -1687,7 +1690,7 @@ static struct blk_mq_tag_set *i10_host_alloc_tagset(struct nvme_ctrl *nctrl,
 		set->cmd_size = sizeof(struct i10_host_request);
 		set->driver_data = ctrl;
 		set->nr_hw_queues = 1;
-		set->timeout = ADMIN_TIMEOUT;
+		set->timeout = NVME_ADMIN_TIMEOUT;
 	} else {
 		set = &ctrl->tag_set;
 		memset(set, 0, sizeof(*set));
@@ -1926,7 +1929,7 @@ static int i10_host_configure_admin_queue(struct nvme_ctrl *ctrl, bool new)
 
 	blk_mq_unquiesce_queue(ctrl->admin_q);
 
-	error = nvme_init_identify(ctrl);
+	error = nvme_init_ctrl_finish(ctrl);
 	if (error)
 		goto out_quiesce_queue;
 
@@ -2282,7 +2285,7 @@ static blk_status_t i10_host_setup_cmd_pdu(struct nvme_ns *ns,
 	u8 hdgst = i10_host_hdgst_len(queue), ddgst = 0;
 	blk_status_t ret;
 
-	ret = nvme_setup_cmd(ns, rq, &pdu->cmd);
+	ret = nvme_setup_cmd(ns, rq);
 	if (ret)
 		return ret;
 
@@ -2335,8 +2338,8 @@ static blk_status_t i10_host_queue_rq(struct blk_mq_hw_ctx *hctx,
 	bool queue_ready = test_bit(I10_HOST_Q_LIVE, &queue->flags);
 	blk_status_t ret;
 
-	if (!nvmf_check_ready(&queue->ctrl->ctrl, rq, queue_ready))
-		return nvmf_fail_nonready_command(&queue->ctrl->ctrl, rq);
+	if (!nvme_check_ready(&queue->ctrl->ctrl, rq, queue_ready))
+		return nvme_fail_nonready_command(&queue->ctrl->ctrl, rq);
 
 	ret = i10_host_setup_cmd_pdu(ns, rq);
 	if (unlikely(ret))
