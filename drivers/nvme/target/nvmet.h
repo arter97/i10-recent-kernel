@@ -21,6 +21,11 @@
 #include <linux/radix-tree.h>
 #include <linux/t10-pi.h>
 
+// Do not modify main include/linux/nvme.h, HACK
+#ifndef NVMF_TRTYPE_I10
+#define NVMF_TRTYPE_I10 (NVMF_TRTYPE_TCP + 1)
+#endif
+
 #define NVMET_DEFAULT_VS		NVME_VS(1, 3, 0)
 
 #define NVMET_ASYNC_EVENTS		4
